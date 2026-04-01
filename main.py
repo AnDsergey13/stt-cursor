@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Непрерывная диктовка: Vosk → xclip → xdotool Ctrl+V."""
+"""Непрерывная диктовка: Vosk → xclip → вставка (адаптивная)."""
 
 import json
-import queue
 import subprocess
 import signal
 import sys
 import os
+import time
 
 from vosk import Model, KaldiRecognizer
 
@@ -14,15 +14,54 @@ SAMPLE_RATE = 16000
 MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "model")
 PID_FILE = "/tmp/stt-cursor.pid"
 
+# WM_CLASS терминальных эмуляторов (lowercase).
+# Если ваш терминал отсутствует — добавьте его сюда.
+# Узнать класс окна: xdotool getactivewindow getwindowclassname
+TERMINAL_CLASSES = {
+    "xfce4-terminal", "gnome-terminal-server", "konsole", "alacritty",
+    "kitty", "terminator", "tilix", "urxvt", "rxvt", "xterm",
+    "st-256color", "st", "wezterm-gui", "ghostty", "foot", "sakura",
+    "lxterminal", "mate-terminal", "terminology", "qterminal",
+    "cool-retro-term", "guake", "tilda", "yakuake", "tabby", "hyper",
+}
+
+
+def _is_terminal_focused() -> bool:
+    """Проверить, является ли активное окно терминальным эмулятором."""
+    try:
+        wm_class = subprocess.check_output(
+            ["xdotool", "getactivewindow", "getwindowclassname"],
+            stderr=subprocess.DEVNULL,
+        ).decode().strip().lower()
+
+        if wm_class in TERMINAL_CLASSES:
+            return True
+        # Запасной вариант: имя класса содержит «term»
+        if "term" in wm_class:
+            return True
+        return False
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
 
 def paste_text(text: str) -> None:
-    """Вставить текст через буфер обмена (надёжно для кириллицы)."""
+    """Вставить текст через буфер обмена (адаптивно для терминалов)."""
     subprocess.run(
         ["xclip", "-selection", "clipboard"],
         input=text.encode("utf-8"),
         check=True,
     )
-    subprocess.run(["xdotool", "key", "ctrl+v"], check=True)
+    # Микропауза: xclip форкается для сервировки буфера —
+    # даём дочернему процессу стать selection owner.
+    time.sleep(0.03)
+
+    if _is_terminal_focused():
+        # Ctrl+Shift+V — вставка средствами терминального эмулятора.
+        # Текст доставляется через bracketed paste, минуя баги TUI.
+        subprocess.run(["xdotool", "key", "ctrl+shift+v"], check=True)
+    else:
+        # Обычные GUI-приложения — стандартный Ctrl+V.
+        subprocess.run(["xdotool", "key", "ctrl+v"], check=True)
 
 
 def process_text(text: str) -> str:
