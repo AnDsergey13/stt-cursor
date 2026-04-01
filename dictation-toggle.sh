@@ -23,7 +23,7 @@ stop_dictation() {
         echo "Killed $pid" >> "$LOG"
     fi
     rm -f "$PID_FILE"
-    notify-send -t 1500 "Диктовка" "Остановлена" 2>>"$LOG"
+    notify-send -t 2000 "Диктовка" "Остановлена" 2>>"$LOG"
 }
 
 start_dictation() {
@@ -31,7 +31,7 @@ start_dictation() {
     echo $! > "$PID_FILE"
     disown
     echo "Started PID: $!" >> "$LOG"
-    notify-send -t 1500 "Диктовка" "Запущена" 2>>"$LOG"
+    notify-send -t 2000 "Диктовка" "Запущена" 2>>"$LOG"
 }
 
 if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
