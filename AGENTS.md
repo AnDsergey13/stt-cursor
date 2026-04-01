@@ -1,110 +1,110 @@
 # AGENTS.md — stt-cursor
 
-## Project Overview
+## Обзор проекта
 
-**stt-cursor** is a continuous dictation tool for Linux that captures microphone audio via PulseAudio/PipeWire, performs offline speech-to-text with Vosk, and pastes recognized text at the cursor position using `xclip` + `xdotool`.
+**stt-cursor** — это инструмент непрерывной диктовки для Linux, который захватывает звук с микрофона через PulseAudio/PipeWire, выполняет офлайн-распознавание речи с помощью Vosk и вставляет распознанный текст в позицию курсора с помощью `xclip` + `xdotool`.
 
-- **Language**: Python 3.14.2
-- **Package manager**: `uv`
-- **Target platform**: Arch Linux / Xfce / PulseAudio or PipeWire (X11)
-- **Entry point**: `main.py`
-- **Auxiliary**: `dictation-toggle.sh` (bash toggle script for global hotkey binding)
+- **Язык**: Python 3.14.2
+- **Менеджер пакетов**: `uv`
+- **Целевая платформа**: Arch Linux / Xfce / PulseAudio или PipeWire (X11)
+- **Точка входа**: `main.py`
+- **Вспомогательный**: `dictation-toggle.sh` (bash-скрипт переключения для привязки к глобальной горячей клавише)
 
-## Commands
+## Команды
 
 ```bash
-uv sync              # Install dependencies (creates .venv)
-uv add <package>     # Add a dependency to pyproject.toml
-uv run python main.py  # Run the application
-.venv/bin/python main.py  # Run directly (faster)
-bash dictation-toggle.sh  # Toggle dictation on/off (bind to hotkey)
+uv sync              # Установить зависимости (создаёт .venv)
+uv add <package>     # Добавить зависимость в pyproject.toml
+uv run python main.py  # Запустить приложение
+.venv/bin/python main.py  # Запустить напрямую (быстрее)
+bash dictation-toggle.sh  # Включить/выключить диктовку (привязать к горячей клавише)
 ```
 
-### Testing
+### Тестирование
 
-**No test framework is currently configured.** If adding tests:
-- Use `pytest` (install with `uv add --dev pytest`)
-- Place tests in a `tests/` directory or as `test_*.py` files
-- Run with `uv run pytest` or `uv run pytest tests/test_file.py` for a single test
-- Run a single test: `uv run pytest tests/test_file.py::test_name -v`
+**На данный момент фреймворк тестирования не настроен.** При добавлении тестов:
+- Используйте `pytest` (установите через `uv add --dev pytest`)
+- Размещайте тесты в директории `tests/` или в файлах `test_*.py`
+- Запуск: `uv run pytest` или `uv run pytest tests/test_file.py` для одного теста
+- Запуск одного теста: `uv run pytest tests/test_file.py::test_name -v`
 
-### Linting & Formatting
+### Линтинг и форматирование
 
-**No linter or formatter is currently configured.** If adding tooling:
-- Recommended: `uv add --dev ruff` (lint + format)
-- Run: `uv run ruff check .` / `uv run ruff format .`
+**На данный момент линтер и форматировщик не настроены.** При добавлении инструментов:
+- Рекомендуется: `uv add --dev ruff` (lint + format)
+- Запуск: `uv run ruff check .` / `uv run ruff format .`
 
-## Code Style
+## Стиль кода
 
 ### Python (`main.py`)
 
-**Imports**
-- Standard library imports first, grouped together (no blank lines between stdlib)
-- Blank line separator before third-party imports
-- No `__future__` imports currently; add if using newer features
+**Импорты**
+- Стандартная библиотека в начале, сгруппирована вместе (без пустых строк между импортами stdlib)
+- Разделительная пустая строка перед импортами сторонних библиотек
+- Импорты `__future__` пока не используются; добавляйте при необходимости новых возможностей
 
-**Naming**
-- Functions: `snake_case` (`paste_text`, `process_text`, `cleanup`, `main`)
-- Constants: `UPPER_SNAKE_CASE` (`SAMPLE_RATE`, `MODEL_PATH`, `PID_FILE`)
-- Variables: `snake_case`
+**Именование**
+- Функции: `snake_case` (`paste_text`, `process_text`, `cleanup`, `main`)
+- Константы: `UPPER_SNAKE_CASE` (`SAMPLE_RATE`, `MODEL_PATH`, `PID_FILE`)
+- Переменные: `snake_case`
 
-**Types**
-- Type hints on function signatures where practical (`def paste_text(text: str) -> None:`)
-- Use built-in types (`str`, `None`) — no `typing` module imports yet
+**Типы**
+- Аннотации типов в сигнатурах функций, где целесообразно (`def paste_text(text: str) -> None:`)
+- Используйте встроенные типы (`str`, `None`) — импорты из модуля `typing` пока не используются
 
-**Error Handling**
-- Use `check=True` on `subprocess.run` for strict error checking
-- Graceful `KeyboardInterrupt` handling in main loop
-- Signal handlers for `SIGTERM` and `SIGINT` via `signal.signal()`
-- Catch specific exceptions (`FileNotFoundError`) rather than bare `except`
-- Use `try/finally` for cleanup guarantees
+**Обработка ошибок**
+- Используйте `check=True` в `subprocess.run` для строгой проверки ошибок
+- Корректная обработка `KeyboardInterrupt` в главном цикле
+- Обработчики сигналов `SIGTERM` и `SIGINT` через `signal.signal()`
+- Ловите конкретные исключения (`FileNotFoundError`), а не голый `except`
+- Используйте `try/finally` для гарантированной очистки ресурсов
 
 **Docstrings**
-- Russian language (matching project convention)
-- Triple-double-quote, single-line for simple functions
+- Русский язык (в соответствии с соглашениями проекта)
+- Тройные двойные кавычки, однострочные для простых функций
 
-**Structure**
-- Single-file application; no packages/modules
-- Functions defined before `main()`
-- `if __name__ == "__main__":` guard required
-- Global constants at module level after imports
+**Структура**
+- Однофайловое приложение; без пакетов/модулей
+- Функции определяются до `main()`
+- Обязательная защита `if __name__ == "__main__":`
+- Глобальные константы на уровне модуля после импортов
 
 ### Bash (`dictation-toggle.sh`)
 
 - Shebang: `#!/usr/bin/env bash`
-- Comments in Russian
-- Functions for `start_dictation` and `stop_dictation`
-- Exports `DISPLAY`, `DBUS_SESSION_BUS_ADDRESS`, `PATH` for hotkey compatibility
-- Logs to `/tmp/stt-cursor.log` for debugging
-- Uses `notify-send` for user feedback (2000ms duration)
+- Комментарии на русском языке
+- Функции `start_dictation` и `stop_dictation`
+- Экспорт `DISPLAY`, `DBUS_SESSION_BUS_ADDRESS`, `PATH` для совместимости с горячими клавишами
+- Логирование в `/tmp/stt-cursor.log` для отладки
+- Использование `notify-send` для обратной связи с пользователем (длительность 2000мс)
 
-## Project Structure
+## Структура проекта
 
 ```
 stt-cursor/
-  main.py                  # Entry point: Vosk STT loop → xclip → xdotool
-  dictation-toggle.sh      # Bash toggle script (bind to global hotkey)
-  pyproject.toml           # uv project config
-  uv.lock                  # Pinned dependencies
+  main.py                  # Точка входа: цикл Vosk STT → xclip → xdotool
+  dictation-toggle.sh      # Bash-скрипт переключения (привязка к глобальной горячей клавише)
+  pyproject.toml           # Конфигурация проекта uv
+  uv.lock                  # Зафиксированные зависимости
   .python-version          # Python 3.14.2
   .gitignore               # temp/, __pycache__, .env, model/
-  model/                   # Vosk speech recognition model (gitignored)
+  model/                   # Модель распознавания речи Vosk (в gitignore)
 ```
 
-## System Dependencies
+## Системные зависимости
 
-These are **not** managed by uv and must be installed on the host:
-- `vosk` — offline speech recognition (Python package, via uv)
-- `parec` — PulseAudio/PipeWire audio capture
-- `xclip` — clipboard manipulation (X11)
-- `xdotool` — X11 keyboard simulation
-- `notify-send` — desktop notifications (libnotify)
+Эти зависимости **не** управляются через uv и должны быть установлены в системе:
+- `vosk` — офлайн-распознавание речи (Python-пакет, через uv)
+- `parec` — захват звука PulseAudio/PipeWire
+- `xclip` — управление буфером обмена (X11)
+- `xdotool` — эмуляция клавиатуры X11
+- `notify-send` — десктопные уведомления (libnotify)
 
-## Conventions for Contributions
+## Соглашения для участников
 
-1. Keep the single-file structure unless complexity demands splitting
-2. Preserve Russian comments/docstrings for consistency
-3. Always use `check=True` on subprocess calls
-4. Handle `SIGTERM`/`SIGINT` gracefully with cleanup
-5. PID file at `/tmp/stt-cursor.pid` for toggle script coordination
-6. Do not commit the `model/` directory (gitignored)
+1. Сохраняйте однофайловую структуру, если сложность не требует разделения
+2. Сохраняйте комментарии и docstrings на русском языке для единообразия
+3. Всегда используйте `check=True` в вызовах subprocess
+4. Корректно обрабатывайте `SIGTERM`/`SIGINT` с очисткой ресурсов
+5. PID-файл в `/tmp/stt-cursor.pid` для координации скрипта переключения
+6. Не коммитьте директорию `model/` (в gitignore)
