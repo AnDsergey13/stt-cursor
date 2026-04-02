@@ -10,12 +10,8 @@ export DISPLAY="${DISPLAY:-:0}"
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}"
 export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 
-# Ключевая строка: sherpa-onnx находит libonnxruntime.so
-export LD_LIBRARY_PATH="$PROJECT/lib:${LD_LIBRARY_PATH:-}"
-
 # --- Лог ---
 echo "=== $(date) ===" >> "$LOG"
-echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> "$LOG"
 
 stop_dictation() {
     local pid
@@ -30,11 +26,11 @@ stop_dictation() {
 
 start_dictation() {
     cd "$PROJECT"
-    "$PROJECT/.venv/bin/python" "$PROJECT/main.py" >> "$LOG" 2>&1 &
+    python3 "$PROJECT/main.py" >> "$LOG" 2>&1 &
     echo $! > "$PID_FILE"
     disown
     echo "Started PID: $!" >> "$LOG"
-    notify-send -t 2000 "🎙 Диктовка" "RU + EN запущена" 2>>"$LOG"
+    notify-send -t 2000 "🎙 Диктовка" "SODA запущена" 2>>"$LOG"
 }
 
 if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then

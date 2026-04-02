@@ -7,3 +7,5 @@ models/
 lib/
 sherpa*
 silero_vad.onnx
+
+gasr/
