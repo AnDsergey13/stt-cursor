@@ -162,7 +162,7 @@ def detect_language(lang_id, audio: np.ndarray) -> str:
 def recognize_russian(recognizer, audio: np.ndarray) -> str:
     stream = recognizer.create_stream()
     stream.accept_waveform(SAMPLE_RATE, audio.tolist())
-    recognizer.decode_stream(stream)   # ← правильный метод
+    recognizer.decode_stream(stream)
     return stream.result.text.strip()
 
 
@@ -235,14 +235,10 @@ def main():
 
                 lang = detect_language(lang_id, audio)
 
-                if lang == "ru":
-                    text = recognize_russian(ru_rec, audio)
-                    if text:
-                        text = process_text(text, "ru")
-                else:
-                    text = recognize_english(en_model, audio)
-                    if text:
-                        text = process_text(text, "en")
+                # Пока всё через GigaAM — Vosk отключён
+                text = recognize_russian(ru_rec, audio)
+                if text:
+                    text = process_text(text, lang)
 
                 if text:
                     paste_text(text + " ")
