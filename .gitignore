@@ -2,10 +2,4 @@ temp/
 __pycache__
 .env
 
-model/
-models/
-lib/
-sherpa*
-silero_vad.onnx
-
 gasr/
