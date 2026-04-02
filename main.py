@@ -7,6 +7,7 @@ SODA (Speech On-Device API) из ChromeOS / Android.
 """
 
 import atexit
+import io
 import re
 import signal
 import subprocess
@@ -176,26 +177,34 @@ def main():
         stdout=subprocess.PIPE,
         stderr=None,
         cwd=GASR_DIR,
-        encoding="utf-8",
-        errors="replace",
-        bufsize=1,
     )
 
     parec.stdout.close()    # SIGPIPE → parec, если gasr умрёт
     _children.extend([parec, gasr])
 
+    # ── Обёртка stdout с newline="\n" ──
+    # gasr.py шлёт partial-результаты с end='\r', final — с '\n'.
+    # С newline="\n" readline() разделяет ТОЛЬКО по \n,
+    # а \r (partials) накапливаются в буфере.
+    # Из склеенной строки "* partial\r* partial2\r* final\n"
+    # берём последний сегмент после \r — финальный результат.
+    gasr_out = io.TextIOWrapper(
+        gasr.stdout, encoding="utf-8", errors="replace", newline="\n",
+    )
+
     print("✅ Говорите...")
 
     try:
         while True:
-            line = gasr.stdout.readline()
-            if not line:                    # gasr завершился
+            raw_line = gasr_out.readline()
+            if not raw_line:                    # gasr завершился
                 rc = gasr.poll()
                 if rc and rc != 0:
                     print(f"✗ gasr.py завершился с кодом {rc}")
                 break
 
-            line = line.rstrip("\n")
+            # "* partial\r* partial2\r* final\n" → "* final"
+            line = raw_line.split("\r")[-1].strip()
 
             # Финальные результаты: строки вида «* распознанный текст»
             if not line.startswith("*"):
