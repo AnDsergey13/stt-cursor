@@ -49,6 +49,19 @@ python3 prep.py -s -l "en-us"
 info "Скачиваю доп. пакет (zork)..."
 python3 prep.py -s -p zork
 
+# ─── Симлинк на русскую модель (по умолчанию) ────────────────────
+# Русская модель хорошо распознаёт вперемешку русский и английский.
+# Чтобы переключиться на другую модель:
+#   cd gasr/ && rm SODAModels && ln -s SODAModels_<lang> SODAModels
+RU_MODEL="$(ls -d SODAModels_ru-ru* 2>/dev/null | head -1)"
+if [ -n "$RU_MODEL" ]; then
+    rm -rf SODAModels
+    ln -s "$RU_MODEL" SODAModels
+    info "SODAModels → $RU_MODEL (русский по умолчанию)"
+else
+    warn "Русская модель не найдена, оставлен SODAModels как есть"
+fi
+
 # ─── Проверка ────────────────────────────────────────────────────
 cd "$PROJECT_DIR"
 
@@ -57,7 +70,7 @@ if [ -f "$PROJECT_DIR/gasr/libsoda.so" ] && [ -d "$PROJECT_DIR/gasr/SODAModels" 
     info "Установка завершена!"
     echo ""
     echo "    gasr/libsoda.so"
-    echo "    gasr/SODAModels/"
+    echo "    gasr/SODAModels/ → ${RU_MODEL:-SODAModels}"
     echo ""
     info "Запуск:  ./dictation-toggle.sh"
     echo ""
