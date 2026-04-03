@@ -13,83 +13,76 @@ info()  { echo -e "${GREEN}[✓]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[!]${NC} $*"; }
 error() { echo -e "${RED}[✗]${NC} $*"; exit 1; }
 
-# ─── Проверяем системные зависимости ──────────────────────────
-for cmd in parec xclip xdotool wget unzip python3; do
-    command -v "$cmd" &>/dev/null || error "'$cmd' не найден. Установите: sudo pacman -S pulseaudio xclip xdotool wget unzip python"
+# ─── Системные зависимости ──────────────────────────────────────
+for cmd in parec xclip xdotool python3 git; do
+    command -v "$cmd" &>/dev/null || error "'$cmd' не найден."
 done
 
-command -v uv &>/dev/null || error "'uv' не найден. Установите: curl -LsSf https://astral.sh/uv/install.sh | sh"
+# libc++ нужен для libsoda.so
+if command -v pacman &>/dev/null; then
+    pacman -Qi libc++ &>/dev/null 2>&1 \
+        || warn "Установите libc++:  sudo pacman -S libc++"
+    pacman -Qi alsa-utils &>/dev/null 2>&1 \
+        || warn "Рекомендуется alsa-utils:  sudo pacman -S alsa-utils"
+fi
 
-# ─── Python-зависимости ──────────────────────────────────────
-info "Устанавливаю Python-зависимости..."
-uv add sherpa-onnx vosk numpy 2>/dev/null || true
-
-# ─── Нативный onnxruntime для sherpa-onnx ─────────────────────
-ONNX_VERSION="1.23.2"
-if [ ! -f "lib/libonnxruntime.so.${ONNX_VERSION}" ]; then
-    info "Скачиваю onnxruntime ${ONNX_VERSION}..."
-    mkdir -p lib
-    wget -q --show-progress \
-        "https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VERSION}/onnxruntime-linux-x64-${ONNX_VERSION}.tgz" \
-        -O "/tmp/onnxruntime-${ONNX_VERSION}.tgz"
-    tar xzf "/tmp/onnxruntime-${ONNX_VERSION}.tgz" \
-        "onnxruntime-linux-x64-${ONNX_VERSION}/lib/libonnxruntime.so.${ONNX_VERSION}"
-    mv "onnxruntime-linux-x64-${ONNX_VERSION}/lib/libonnxruntime.so.${ONNX_VERSION}" lib/
-    ln -sf "libonnxruntime.so.${ONNX_VERSION}" lib/libonnxruntime.so
-    rm -rf "onnxruntime-linux-x64-${ONNX_VERSION}" "/tmp/onnxruntime-${ONNX_VERSION}.tgz"
-    info "onnxruntime → lib/"
+# ─── Клонирование gasr ──────────────────────────────────────────
+if [ ! -d "$PROJECT_DIR/gasr" ]; then
+    info "Клонирую gasr..."
+    git clone https://github.com/biemster/gasr.git "$PROJECT_DIR/gasr"
 else
-    info "onnxruntime уже есть в lib/"
+    info "gasr/ уже есть"
 fi
 
-# ─── Модели ────────────────────────────────────────────────────
-MODELS_DIR="$PROJECT_DIR/models"
-mkdir -p "$MODELS_DIR"
+cd "$PROJECT_DIR/gasr"
 
-# Silero VAD
-if [ ! -f "$MODELS_DIR/silero_vad.onnx" ]; then
-    info "Скачиваю Silero VAD..."
-    wget -q --show-progress -O "$MODELS_DIR/silero_vad.onnx" \
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
+# ─── Скачивание SODA и моделей ──────────────────────────────────
+info "Скачиваю libsoda..."
+python3 prep.py -s
+
+info "Скачиваю русскую модель (ru-ru)..."
+python3 prep.py -s -l "ru-ru"
+
+info "Скачиваю английскую модель (en-us)..."
+python3 prep.py -s -l "en-us"
+
+info "Скачиваю доп. пакет (zork)..."
+python3 prep.py -s -p zork
+
+# ─── Симлинк на русскую модель (по умолчанию) ────────────────────
+# Русская модель хорошо распознаёт вперемешку русский и английский.
+# Чтобы переключиться на другую модель:
+#   cd gasr/ && rm SODAModels && ln -s SODAModels_<lang> SODAModels
+RU_MODEL="$(ls -d SODAModels_ru-ru* 2>/dev/null | head -1)"
+if [ -n "$RU_MODEL" ]; then
+    rm -rf SODAModels
+    ln -s "$RU_MODEL" SODAModels
+    info "SODAModels → $RU_MODEL (русский по умолчанию)"
+else
+    warn "Русская модель не найдена, оставлен SODAModels как есть"
 fi
 
-# Whisper tiny (для определения языка)
-if [ ! -d "$MODELS_DIR/sherpa-onnx-whisper-tiny" ]; then
-    info "Скачиваю Whisper tiny (язык-детектор)..."
-    wget -q --show-progress \
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.tar.bz2" \
-        -O "/tmp/whisper-tiny.tar.bz2"
-    tar xjf "/tmp/whisper-tiny.tar.bz2" -C "$MODELS_DIR"
-    rm -f "/tmp/whisper-tiny.tar.bz2"
-fi
+# ─── Проверка ────────────────────────────────────────────────────
+cd "$PROJECT_DIR"
 
-# GigaAM Russian
-if [ ! -f "$MODELS_DIR/gigaam-russian/model.int8.onnx" ]; then
-    info "Скачиваю GigaAM v2 (русский ASR)..."
-    wget -q --show-progress \
-        "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-ctc-giga-am-v2-russian-2025-04-19.tar.bz2" \
-        -O "/tmp/gigaam.tar.bz2"
-    tar xjf "/tmp/gigaam.tar.bz2" -C "/tmp"
-    mv "/tmp/sherpa-onnx-nemo-ctc-giga-am-v2-russian-2025-04-19" "$MODELS_DIR/gigaam-russian"
-    rm -f "/tmp/gigaam.tar.bz2"
-fi
+if [ -f "$PROJECT_DIR/gasr/libsoda.so" ] && [ -d "$PROJECT_DIR/gasr/SODAModels" ]; then
+    echo ""
+    info "Установка завершена!"
+    echo ""
+    echo "    gasr/libsoda.so"
+    echo "    gasr/SODAModels/ → ${RU_MODEL:-SODAModels}"
+    echo ""
+    info "Запуск:  ./dictation-toggle.sh"
+    echo ""
 
-# Vosk English small
-if [ ! -d "$MODELS_DIR/vosk-model-small-en-us-0.15" ]; then
-    info "Скачиваю Vosk English small..."
-    wget -q --show-progress \
-        "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip" \
-        -O "/tmp/vosk-en.zip"
-    unzip -q "/tmp/vosk-en.zip" -d "$MODELS_DIR"
-    rm -f "/tmp/vosk-en.zip"
+    # Подсказка по очистке старых файлов
+    OLD_DIRS=()
+    [ -d "$PROJECT_DIR/models" ] && OLD_DIRS+=("models/")
+    [ -d "$PROJECT_DIR/lib" ]    && OLD_DIRS+=("lib/")
+    [ -d "$PROJECT_DIR/.venv" ]  && OLD_DIRS+=(".venv/")
+    if [ ${#OLD_DIRS[@]} -gt 0 ]; then
+        warn "Старые файлы можно удалить:  rm -rf ${OLD_DIRS[*]}"
+    fi
+else
+    error "Что-то пошло не так — проверьте вывод выше."
 fi
-
-# ─── Готово ────────────────────────────────────────────────────
-info "Все модели загружены:"
-echo "    models/silero_vad.onnx"
-echo "    models/sherpa-onnx-whisper-tiny/"
-echo "    models/gigaam-russian/"
-echo "    models/vosk-model-small-en-us-0.15/"
-echo ""
-info "Запуск: ./dictation-toggle.sh"
-info "Или вручную: LD_LIBRARY_PATH=$(pwd)/lib:\$LD_LIBRARY_PATH uv run python main.py"
