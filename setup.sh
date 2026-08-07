@@ -36,6 +36,21 @@ fi
 
 cd "$PROJECT_DIR/gasr"
 
+# ─── Проверка актуальности ld-linux.so ──────────────────────────
+# ld-linux.so — пропатченная копия системного загрузчика glibc.
+# Загрузчик и libc.so.6 обязаны быть из одной сборки glibc, поэтому
+# после обновления glibc старая копия ломается (GLIBC_PRIVATE mismatch).
+# Если версии различаются — удаляем, prep.py ниже пересоздаст свежую.
+SYS_LINKER="$(ldd /usr/bin/env 2>/dev/null | grep -o '/[^ ]*ld-linux[^ ]*' | head -1)"
+if [ -f ld-linux.so ] && [ -n "$SYS_LINKER" ]; then
+    VENDORED_VER="$(strings ld-linux.so | grep -o 'stable release version [0-9.]*' | head -1)"
+    SYSTEM_VER="$(strings "$SYS_LINKER" | grep -o 'stable release version [0-9.]*' | head -1)"
+    if [ -n "$VENDORED_VER" ] && [ -n "$SYSTEM_VER" ] && [ "$VENDORED_VER" != "$SYSTEM_VER" ]; then
+        warn "glibc обновлён ($VENDORED_VER → $SYSTEM_VER), пересоздаю ld-linux.so..."
+        rm -f ld-linux.so
+    fi
+fi
+
 # ─── Скачивание SODA и моделей ──────────────────────────────────
 info "Скачиваю libsoda..."
 python3 prep.py -s
