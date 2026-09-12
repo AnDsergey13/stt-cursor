@@ -20,16 +20,17 @@
 
 ## Системные зависимости
 
-Убедитесь, что в вашей системе установлены необходимые пакеты. Сторонние зависимости Python больше не требуются (`uv` можно не использовать, достаточно стандартного `python3`).
+Убедитесь, что в вашей системе установлены необходимые пакеты. Все Python-зависимости ставятся **только через pacman** — установка через `pip` в системный Python теряется при мажорном обновлении Python (смена `site-packages`), и диктовка перестаёт запускаться.
 
 Для Arch Linux:
 ```bash
-sudo pacman -S xdotool xclip libnotify pipewire-pulse libc++ alsa-utils git python
+sudo pacman -S xdotool xclip libnotify pipewire-pulse libc++ alsa-utils git python python-protobuf
 ```
 
 | Пакет | Назначение |
 |---|---|
 | `pipewire-pulse` | `parec` — захват аудио с микрофона |
+| `python-protobuf` | **Обязательно**: `gasr.py` (под системным `/usr/bin/python3`) импортирует `google.protobuf` |
 | `xclip`, `xdotool` | Управление буфером обмена и эмуляция вставки (X11) |
 | `libnotify` | Системные уведомления (`notify-send`) |
 | `libc++` | **Необходимо** для работы бинарной библиотеки `libsoda.so` |
@@ -134,6 +135,7 @@ ln -s SODAModels_en-us SODAModels
 **Частые проблемы:**
 * **✗ Не найден gasr.py:** Вы не запустили `./setup.sh` перед стартом программы.
 * **✗ parec не найден:** Убедитесь, что установлен пакет `pipewire-pulse` (или `pulseaudio-utils`).
+* **`ModuleNotFoundError: No module named 'google'` / «не найден модуль google.protobuf»:** Сломалось после мажорного обновления системного Python (например, 3.13 → 3.14) — модули, установленные через `pip`, остаются в старом `site-packages`. Лечение: `sudo pacman -S python-protobuf`. Чтобы проблема не возвращалась, **никогда не ставьте зависимости этого проекта через `pip`** — только pacman.
 * **Не запускается / Ошибка libsoda.so:** Проверьте наличие пакета `libc++` (`sudo pacman -S libc++`).
 * **Сломалось после обновления системы (glibc):** `gasr/ld-linux.so` — это копия системного загрузчика glibc, сделанная при установке. После обновления glibc она устаревает и должна быть пересоздана:
   ```bash
