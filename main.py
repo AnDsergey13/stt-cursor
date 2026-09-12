@@ -149,6 +149,20 @@ def main():
         print("  Запустите ./setup.sh")
         sys.exit(1)
 
+    # gasr.py работает под системным /usr/bin/python3 и требует protobuf.
+    # Ставить только через pacman: pip-установка теряется при мажорном
+    # обновлении Python (смена site-packages), и диктовка молча сломается.
+    probe = subprocess.run(
+        ["/usr/bin/python3", "-c", "import google.protobuf"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if probe.returncode != 0:
+        print("✗ /usr/bin/python3: не найден модуль google.protobuf")
+        print("  Установите: sudo pacman -S python-protobuf")
+        print("  (через pip ставить нельзя — теряется при обновлении Python)")
+        sys.exit(1)
+
     print("🎙 Запуск SODA...")
 
     # ── Pipeline: parec (захват звука) → gasr.py (распознавание) ──
