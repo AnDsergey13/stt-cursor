@@ -8,11 +8,13 @@ SODA (Speech On-Device API) из ChromeOS / Android.
 
 import atexit
 import io
+import json
 import re
 import signal
 import subprocess
 import sys
 import os
+import threading
 import time
 
 # ─── Константы ──────────────────────────────────────────────────
@@ -31,6 +33,77 @@ TERMINAL_CLASSES = {
     "lxterminal", "mate-terminal", "terminology", "qterminal",
     "cool-retro-term", "guake", "tilda", "yakuake", "tabby", "hyper",
 }
+
+
+# ─── Починка зависшего BT-микрофона ─────────────────────────────
+# После простоя wireplumber усыпляет BT-источник, а при пробуждении
+# SCO-транспорт гарнитуры зависает: pipewire показывает RUNNING, но
+# байты не идут, SODA пишет «Pipeline lagging» и молчит навсегда.
+
+
+def _notify(title: str, message: str) -> None:
+    """Показать десктопное уведомление (best effort)."""
+    try:
+        subprocess.run(
+            ["notify-send", "-t", "5000", title, message],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+
+
+def _default_source_is_bluetooth() -> bool:
+    """True, если дефолтный источник — BT-микрофон (bluez_input).
+
+    При просмотре видео через гарнитуру (профиль A2DP) источника
+    bluez_input нет, и дефолтом становится другой микрофон — трогать
+    BT-профиль в этом случае нельзя, иначе оборвётся воспроизведение.
+    """
+    try:
+        out = subprocess.check_output(
+            ["pactl", "get-default-source"], stderr=subprocess.DEVNULL,
+        )
+        return out.decode().strip().startswith("bluez_input")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
+def _kick_bluetooth_mic() -> bool:
+    """Передёрнуть профиль BT-карты (off → headset-head-unit).
+
+    Оживляет зависший SCO-транспорт без переподключения гарнитуры.
+    """
+    try:
+        out = subprocess.check_output(
+            ["pactl", "--format=json", "list", "cards"],
+            stderr=subprocess.DEVNULL,
+        )
+        cards = json.loads(out)
+    except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError):
+        return False
+    kicked = False
+    for card in cards:
+        name = card.get("name", "")
+        if not name.startswith("bluez_card"):
+            continue
+        try:
+            subprocess.run(
+                ["pactl", "set-card-profile", name, "off"],
+                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            pass    # карта могла уже быть в off
+        time.sleep(2)
+        try:
+            subprocess.run(
+                ["pactl", "set-card-profile", name, "headset-head-unit"],
+                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            return False
+        time.sleep(3)   # дождаться поднятия SCO-транспорта
+        kicked = True
+    return kicked
 
 
 # ─── Вставка текста ─────────────────────────────────────────────
@@ -124,8 +197,12 @@ def _cleanup():
                 p.kill()
             except Exception:
                 pass
+    # Удаляем PID-файл, только если он наш: при быстром стоп/старте
+    # новый экземпляр уже мог записать туда свой PID.
     try:
-        os.remove(PID_FILE)
+        with open(PID_FILE) as f:
+            if f.read().strip() == str(os.getpid()):
+                os.remove(PID_FILE)
     except FileNotFoundError:
         pass
 
@@ -137,8 +214,81 @@ def _on_sigterm(signum, frame):
     sys.exit(0)  # → atexit._cleanup()
 
 
+# ─── Пайплайн: parec (захват звука) → gasr.py (распознавание) ────
+def _start_pipeline():
+    """Запустить parec → gasr, вернуть (gasr, обёртку его stdout)."""
+    try:
+        parec = subprocess.Popen(
+            [
+                "parec",
+                "--rate", str(SAMPLE_RATE),
+                "--channels", "1",
+                "--format", "s16le",
+                "--latency-msec", "100",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+    except FileNotFoundError:
+        print("✗ parec не найден. Установите pulseaudio или pipewire-pulse.")
+        sys.exit(1)
+
+    gasr = subprocess.Popen(
+        [os.path.join(GASR_DIR, "ld-linux.so"), "/usr/bin/python3", "-u", GASR_PY],
+        stdin=parec.stdout,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=GASR_DIR,
+    )
+
+    parec.stdout.close()    # SIGPIPE → parec, если gasr умрёт
+    _children[:] = [parec, gasr]
+
+    # ── Обёртка stdout с newline="\n" ──
+    # gasr.py шлёт partial-результаты с end='\r', final — с '\n'.
+    # С newline="\n" readline() разделяет ТОЛЬКО по \n,
+    # а \r (partials) накапливаются в буфере.
+    # Из склеенной строки "* partial\r* partial2\r* final\n"
+    # берём последний сегмент после \r — финальный результат.
+    gasr_out = io.TextIOWrapper(
+        gasr.stdout, encoding="utf-8", errors="replace", newline="\n",
+    )
+    return gasr, gasr_out
+
+
+def _watch_stderr(gasr, restart_event, state):
+    """Переливать stderr gasr в лог; при зависании починить и перезапустить.
+
+    Признак зависшего BT-транспорта — «Pipeline lagging» сразу после
+    старта: в рабочих сессиях этой строки не бывает никогда. Лечение:
+    передёрнуть BT-профиль (только если диктовка идёт через BT-микрофон,
+    иначе оборвётся воспроизведение в гарнитуре) и перезапустить пайплайн.
+    """
+    for raw in iter(gasr.stderr.readline, b""):
+        line = raw.decode("utf-8", "replace")
+        sys.stderr.write(line)
+        if restart_event.is_set() or state["finals"] > 0:
+            continue        # рестарт уже запрошен / сбой не на старте
+        if "Pipeline lagging" in line:
+            print("⚠ Распознавание зависло (нет звука с микрофона), перезапускаю...")
+            _notify("🎙 Диктовка", "Микрофон завис, перезапускаю…")
+            restart_event.set()
+            for p in _children:
+                try:
+                    p.terminate()
+                except Exception:
+                    pass
+            if _default_source_is_bluetooth():
+                _kick_bluetooth_mic()
+            return
+
+
 # ─── Основной цикл ──────────────────────────────────────────────
 def main():
+    # Лог писать построчно: stdout уходит в файл, и без этого сообщения
+    # видны только при завершении процесса — отладка вслепую.
+    sys.stdout.reconfigure(line_buffering=True)
+
     with open(PID_FILE, "w") as f:
         f.write(str(os.getpid()))
 
@@ -165,73 +315,60 @@ def main():
 
     print("🎙 Запуск SODA...")
 
-    # ── Pipeline: parec (захват звука) → gasr.py (распознавание) ──
-    try:
-        parec = subprocess.Popen(
-            [
-                "parec",
-                "--rate", str(SAMPLE_RATE),
-                "--channels", "1",
-                "--format", "s16le",
-                "--latency-msec", "100",
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+    # ── Цикл с авторестартом: если watchdog поймал зависание
+    # («Pipeline lagging»), пайплайн перезапускается ──
+    restart_event = threading.Event()
+    state = {"finals": 0}
+    restarts = 0
+    while True:
+        gasr, gasr_out = _start_pipeline()
+        watchdog = threading.Thread(
+            target=_watch_stderr,
+            args=(gasr, restart_event, state),
+            daemon=True,
         )
-    except FileNotFoundError:
-        print("✗ parec не найден. Установите pulseaudio или pipewire-pulse.")
-        sys.exit(1)
+        watchdog.start()
 
-    gasr = subprocess.Popen(
-        [os.path.join(GASR_DIR, "ld-linux.so"), "/usr/bin/python3", "-u", GASR_PY],
-        stdin=parec.stdout,
-        stdout=subprocess.PIPE,
-        stderr=None,
-        cwd=GASR_DIR,
-    )
+        print("✅ Говорите...")
 
-    parec.stdout.close()    # SIGPIPE → parec, если gasr умрёт
-    _children.extend([parec, gasr])
+        try:
+            while True:
+                raw_line = gasr_out.readline()
+                if not raw_line:                    # gasr завершился
+                    rc = gasr.poll()
+                    if rc and rc != 0 and not restart_event.is_set():
+                        print(f"✗ gasr.py завершился с кодом {rc}")
+                    break
 
-    # ── Обёртка stdout с newline="\n" ──
-    # gasr.py шлёт partial-результаты с end='\r', final — с '\n'.
-    # С newline="\n" readline() разделяет ТОЛЬКО по \n,
-    # а \r (partials) накапливаются в буфере.
-    # Из склеенной строки "* partial\r* partial2\r* final\n"
-    # берём последний сегмент после \r — финальный результат.
-    gasr_out = io.TextIOWrapper(
-        gasr.stdout, encoding="utf-8", errors="replace", newline="\n",
-    )
+                # "* partial\r* partial2\r* final\n" → "* final"
+                line = raw_line.split("\r")[-1].strip()
 
-    print("✅ Говорите...")
+                # Финальные результаты: строки вида «* распознанный текст»
+                if not line.startswith("*"):
+                    continue
 
-    try:
-        while True:
-            raw_line = gasr_out.readline()
-            if not raw_line:                    # gasr завершился
-                rc = gasr.poll()
-                if rc and rc != 0:
-                    print(f"✗ gasr.py завершился с кодом {rc}")
-                break
+                text = line[1:].strip()         # убрать «*» и пробелы
+                if not text:
+                    continue
 
-            # "* partial\r* partial2\r* final\n" → "* final"
-            line = raw_line.split("\r")[-1].strip()
+                text = process_text(text)
+                if text:
+                    paste_text(text + " ")
+                    state["finals"] += 1
+                    print(f"  → {text}")
 
-            # Финальные результаты: строки вида «* распознанный текст»
-            if not line.startswith("*"):
-                continue
+        except KeyboardInterrupt:
+            break
 
-            text = line[1:].strip()         # убрать «*» и пробелы
-            if not text:
-                continue
-
-            text = process_text(text)
-            if text:
-                paste_text(text + " ")
-                print(f"  → {text}")
-
-    except KeyboardInterrupt:
-        pass
+        if not restart_event.is_set():
+            break
+        watchdog.join()         # дождаться окончания починки
+        restart_event.clear()
+        restarts += 1
+        if restarts > 2:
+            print("✗ Микрофон не отвечает — переподключите гарнитуру")
+            _notify("🎙 Диктовка", "Микрофон не отвечает — переподключите гарнитуру")
+            break
 
 
 if __name__ == "__main__":

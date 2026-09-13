@@ -40,13 +40,16 @@ cd "$PROJECT_DIR/gasr"
 # ld-linux.so — пропатченная копия системного загрузчика glibc.
 # Загрузчик и libc.so.6 обязаны быть из одной сборки glibc, поэтому
 # после обновления glibc старая копия ломается (GLIBC_PRIVATE mismatch).
-# Если версии различаются — удаляем, prep.py ниже пересоздаст свежую.
+# Сравниваем по GNU build-id: номер версии («2.44») не меняется
+# между ревизиями пакета (2.44+r5 → 2.44+r24), а build-id — меняется.
+# Если сборки различаются — удаляем, prep.py ниже пересоздаст свежую.
 SYS_LINKER="$(ldd /usr/bin/env 2>/dev/null | grep -o '/[^ ]*ld-linux[^ ]*' | head -1)"
+build_id() { LC_ALL=C readelf -n "$1" 2>/dev/null | grep -o 'Build ID: [0-9a-f]*' | head -1; }
 if [ -f ld-linux.so ] && [ -n "$SYS_LINKER" ]; then
-    VENDORED_VER="$(strings ld-linux.so | grep -o 'stable release version [0-9.]*' | head -1)"
-    SYSTEM_VER="$(strings "$SYS_LINKER" | grep -o 'stable release version [0-9.]*' | head -1)"
-    if [ -n "$VENDORED_VER" ] && [ -n "$SYSTEM_VER" ] && [ "$VENDORED_VER" != "$SYSTEM_VER" ]; then
-        warn "glibc обновлён ($VENDORED_VER → $SYSTEM_VER), пересоздаю ld-linux.so..."
+    VENDORED_ID="$(build_id ld-linux.so)"
+    SYSTEM_ID="$(build_id "$SYS_LINKER")"
+    if [ -n "$VENDORED_ID" ] && [ -n "$SYSTEM_ID" ] && [ "$VENDORED_ID" != "$SYSTEM_ID" ]; then
+        warn "glibc обновлён ($VENDORED_ID → $SYSTEM_ID), пересоздаю ld-linux.so..."
         rm -f ld-linux.so
     fi
 fi

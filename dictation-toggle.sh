@@ -20,6 +20,8 @@ stop_dictation() {
         kill "$pid" 2>/dev/null
         echo "Killed $pid" >> "$LOG"
     fi
+    # PID-файл нового экземпляра старый процесс не удалит:
+    # main.py при выходе проверяет, что в файле его PID.
     rm -f "$PID_FILE"
     notify-send -t 2000 "🎙 Диктовка" "Остановлена" 2>>"$LOG"
 }
