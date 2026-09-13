@@ -106,6 +106,74 @@ def _kick_bluetooth_mic() -> bool:
     return kicked
 
 
+def _other_capture_active() -> bool:
+    """True, если с BT-микрофона пишет кто-то ещё (звонок, браузер)."""
+    try:
+        sources = json.loads(subprocess.check_output(
+            ["pactl", "--format=json", "list", "sources"],
+            stderr=subprocess.DEVNULL,
+        ))
+        outputs = json.loads(subprocess.check_output(
+            ["pactl", "--format=json", "list", "source-outputs"],
+            stderr=subprocess.DEVNULL,
+        ))
+    except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError):
+        return True     # не смогли проверить — карту не трогаем
+    bluez = {
+        s.get("index") for s in sources
+        if s.get("name", "").startswith("bluez_input")
+    }
+    for out in outputs:
+        if out.get("source") not in bluez:
+            continue
+        props = out.get("properties", {})
+        if props.get("application.name") == "WirePlumber":
+            continue
+        if props.get("application.process.binary") == "wireplumber":
+            continue
+        return True     # чужой захват — профиль не переключаем
+    return False
+
+
+def _restore_bt_output() -> None:
+    """Вернуть bluez-карте A2DP-профиль после остановки диктовки.
+
+    Если SCO-транспорт сбоил, wireplumber может оставить карту в off или
+    headset-head-unit — тогда наушники пропадают из микшера как выход.
+    """
+    if not _default_source_is_bluetooth() or _other_capture_active():
+        return
+    try:
+        cards = json.loads(subprocess.check_output(
+            ["pactl", "--format=json", "list", "cards"],
+            stderr=subprocess.DEVNULL,
+        ))
+    except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError):
+        return
+    for card in cards:
+        name = card.get("name", "")
+        if not name.startswith("bluez_card"):
+            continue
+        profile = str(card.get("active_profile", ""))
+        if profile.startswith("a2dp"):
+            continue    # уже профиль для прослушивания
+        profiles = card.get("profiles", {})
+        target = next(
+            (p for p in ("a2dp-sink", "a2dp-sink-sbc")
+             if profiles.get(p, {}).get("available") in (True, "yes")),
+            None,
+        )
+        if target is None:
+            continue
+        try:
+            subprocess.run(
+                ["pactl", "set-card-profile", name, target],
+                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            pass    # карта могла уйти в off или исчезнуть
+
+
 # ─── Вставка текста ─────────────────────────────────────────────
 def _is_terminal_focused() -> bool:
     try:
@@ -197,6 +265,11 @@ def _cleanup():
                 p.kill()
             except Exception:
                 pass
+    # Если пайплайн работал, вернуть наушникам профиль для прослушивания:
+    # после сбоя SCO wireplumber может оставить карту в off, и выход
+    # пропадает из микшера («звук отвалился» после остановки диктовки).
+    if _children:
+        _restore_bt_output()
     # Удаляем PID-файл, только если он наш: при быстром стоп/старте
     # новый экземпляр уже мог записать туда свой PID.
     try:
