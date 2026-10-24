@@ -1,0 +1,125 @@
+{
+  "rules": [
+    {
+      "canonical": "docker compose up",
+      "variants": [
+        "докер кампоуз up",
+        "докер кампоусаб",
+        "docker compose app"
+      ],
+      "anchors": ["докер", "docker"],
+      "veto": []
+    },
+    {
+      "canonical": "docker compose",
+      "variants": [
+        "докер кампоуз",
+        "докер компост",
+        "докер компоус",
+        "докер компас",
+        "докер компаузап"
+      ],
+      "anchors": ["докер"],
+      "veto": []
+    },
+    {
+      "canonical": "commit",
+      "variants": ["комит", "коммит"],
+      "anchors": [],
+      "veto": []
+    },
+    {
+      "canonical": "nginx",
+      "variants": ["инженекс", "genix"],
+      "anchors": [],
+      "veto": []
+    },
+    {
+      "canonical": "systemd unit",
+      "variants": [
+        "System D Unit",
+        "System de Unit",
+        "System Di Unit"
+      ],
+      "anchors": [],
+      "veto": []
+    },
+    {
+      "canonical": "python с async await",
+      "variants": ["pythonka wait"],
+      "anchors": [],
+      "veto": []
+    },
+    {
+      "canonical": "python",
+      "variants": ["пальтон", "pythonka", "python"],
+      "anchors": [],
+      "veto": ["змея", "рептилия", "террариум", "усы"]
+    },
+    {
+      "canonical": "python",
+      "variants": ["питон"],
+      "anchors": [
+        "python",
+        "функция",
+        "функцию",
+        "функции",
+        "код",
+        "коде",
+        "скрипт",
+        "программирование",
+        "программирования",
+        "разработка",
+        "разработке",
+        "язык",
+        "языка",
+        "языке",
+        "async",
+        "await"
+      ],
+      "veto": ["змея", "рептилия", "террариум", "усы"]
+    },
+    {
+      "canonical": "async await",
+      "variants": ["осинка вейт"],
+      "anchors": [],
+      "veto": []
+    },
+    {
+      "canonical": "pacman",
+      "variants": ["пакман"],
+      "anchors": [],
+      "veto": []
+    },
+    {
+      "canonical": "yay",
+      "variants": ["яй"],
+      "anchors": ["pacman", "пакман", "пакет", "пакета", "пакеты", "пакетов"],
+      "veto": []
+    },
+    {
+      "canonical": "exitbox",
+      "variants": ["экзит бокс"],
+      "anchors": [],
+      "veto": []
+    },
+    {
+      "canonical": "squid proxy",
+      "variants": ["quid proxy"],
+      "anchors": [],
+      "veto": []
+    },
+    {
+      "canonical": "huggingface",
+      "variants": ["hugging face", "heightened face"],
+      "anchors": [],
+      "veto": []
+    },
+    {
+      "canonical": "onnx",
+      "variants": ["Annex", "Onyx", "unks", "songs", "onks"],
+      "anchors": ["huggingface"],
+      "veto": []
+    }
+  ]
+}

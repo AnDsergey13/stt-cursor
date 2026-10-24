@@ -17,6 +17,8 @@ import os
 import threading
 import time
 
+from term_fixer import fix_text
+
 # ─── Константы ──────────────────────────────────────────────────
 SAMPLE_RATE = 16000
 PID_FILE = "/tmp/stt-cursor.pid"
@@ -425,6 +427,7 @@ def main():
                     continue
 
                 text = process_text(text)
+                text = fix_text(text)
                 if text:
                     paste_text(text + " ")
                     state["finals"] += 1
