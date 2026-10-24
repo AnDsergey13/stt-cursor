@@ -2,7 +2,7 @@
 
 ## Обзор проекта
 
-**stt-cursor** — это инструмент непрерывной диктовки для Linux, который захватывает звук с микрофона через PulseAudio/PipeWire, выполняет офлайн-распознавание речи с помощью Google SODA (через `gasr/`, автопунктуация из коробки), восстанавливает IT-термины пост-слоем `term_fixer.py` и вставляет текст в позицию курсора с помощью `xclip` + `xdotool`.
+**stt-cursor** — это инструмент непрерывной диктовки для Linux, который захватывает звук с микрофона через PulseAudio/PipeWire, выполняет офлайн-распознавание речи с помощью Google SODA (через `gasr/`, автопунктуация из коробки), восстанавливает IT-термины пост-слоем `term_fixer.py` и вставляет текст в позицию курсора с помощью `xclip` + `xdotool`. Финальные сегменты по умолчанию сохраняются парами «SODA → вставленный текст» в локальные JSONL-файлы `history/`.
 
 - **Язык**: Python 3.14.2
 - **Менеджер пакетов**: `uv`
@@ -17,7 +17,9 @@ uv sync              # Установить зависимости (создаё
 uv add <package>     # Добавить зависимость в pyproject.toml
 uv run python main.py  # Запустить приложение
 .venv/bin/python main.py  # Запустить напрямую (быстрее)
+python3 main.py --no-history  # Запустить без записи истории
 bash dictation-toggle.sh  # Включить/выключить диктовку (привязать к горячей клавише)
+bash dictation-toggle.sh --no-history  # Запустить через переключатель без истории
 ```
 
 ## Команды для оператора (ручной запуск в терминале)
@@ -33,9 +35,10 @@ bash dictation-toggle.sh  # Включить/выключить диктовку
 
 ### Тестирование
 
-Тесты пост-слоя терминов используют stdlib `unittest` и находятся в `tests/`.
+Тесты проекта используют stdlib `unittest` и находятся в `tests/`.
 - Запуск всех тестов: `python3 -m unittest discover -s tests`
-- Запуск одного файла: `python3 -m unittest discover -s tests -p 'test_term_fixer.py' -v`
+- Тесты терминов: `python3 -m unittest discover -s tests -p 'test_term_fixer.py' -v`
+- Тесты истории: `python3 -m unittest discover -s tests -p 'test_history.py' -v`
 - Запуск одного теста: `python3 -m unittest discover -s tests -p 'test_term_fixer.py' -k test_acceptance_fixtures -v`
 - Дополнительные тестовые зависимости не требуются.
 
@@ -93,19 +96,21 @@ bash dictation-toggle.sh  # Включить/выключить диктовку
 
 ```
 stt-cursor/
-  main.py                  # Точка входа: parec → gasr/SODA → term_fixer → xclip → xdotool
+  main.py                  # Точка входа: parec → gasr/SODA → term_fixer → xclip/xdotool → history
   term_fixer.py            # API и CLI пост-слоя восстановления IT-терминов
   terms_map.json           # Канонические термины, варианты ошибок, якоря и вето
-  tests/test_term_fixer.py # Приёмочные и регрессионные unittest-тесты
+  tests/test_term_fixer.py # Тесты пост-слоя терминов
+  tests/test_history.py    # Тесты JSONL-истории и её связи с главным циклом
   docs/                    # Исследование SODA и отчёт по пост-слою
   dictation-toggle.sh      # Bash-скрипт переключения (привязка к глобальной горячей клавише)
   gasr/                    # Движок SODA: gasr.py, libsoda.so, ld-linux.so, модели
   pyproject.toml           # Конфигурация проекта uv
   uv.lock                  # Зафиксированные зависимости
   .python-version          # Python 3.14.2
-  .gitignore               # temp/, __pycache__, .env, model/
+  .gitignore               # temp/, __pycache__, .env, model/, history/
   .kimi-code/skills/       # Скилы проекта (см. раздел «Скилы»)
   model/                   # Модель распознавания речи Vosk (в gitignore)
+  history/                 # Локальные JSONL-сессии диктовки (в gitignore)
   TODO.md                  # План, текущее состояние и журнал решений проекта
 ```
 
@@ -115,6 +120,13 @@ stt-cursor/
 - Перед планированием изменений читать `TODO.md`; после значимого результата обновлять состояние, план и журнал.
 - Фиксировать не только успехи, но и неудачные маршруты, ограничения, метрики и ссылки на подробные отчёты. Не выдавать непроверенное за работающее.
 - Подробные исследования хранить в `docs/`; в `TODO.md` оставлять выводы и ссылки, чтобы файл оставался обозримым.
+
+## История диктовки
+
+- По умолчанию каждый запуск создаёт JSONL в `history/`; после успешной вставки записывается пара «финал SODA → точная вставленная строка». PARTIAL, аудио и оконный контекст не сохраняются, сетевых вызовов нет.
+- `history/` и её содержимое нельзя коммитить. Отключение: `python3 main.py --no-history` или `bash dictation-toggle.sh --no-history`.
+- Запись делается после вставки и сразу сбрасывается через `flush`; `_cleanup()` закрывает файл. При изменениях не потерять эти гарантии.
+- Ошибка истории должна предупреждать один раз и отключать запись до перезапуска, не прерывая диктовку и не мешая вставке.
 
 ## Скилы
 

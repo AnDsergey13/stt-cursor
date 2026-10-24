@@ -6,6 +6,7 @@ SODA (Speech On-Device API) из ChromeOS / Android.
 Вставка — xclip → xdotool (адаптивно для терминалов).
 """
 
+import argparse
 import atexit
 import io
 import json
@@ -14,8 +15,10 @@ import signal
 import subprocess
 import sys
 import os
+import tempfile
 import threading
 import time
+from datetime import datetime
 
 from term_fixer import fix_text
 
@@ -26,6 +29,7 @@ PID_FILE = "/tmp/stt-cursor.pid"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 GASR_DIR = os.path.join(BASE_DIR, "gasr")
 GASR_PY = os.path.join(GASR_DIR, "gasr.py")
+HISTORY_DIR = os.path.join(BASE_DIR, "history")
 
 # WM_CLASS терминальных эмуляторов (lowercase)
 TERMINAL_CLASSES = {
@@ -52,6 +56,101 @@ def _notify(title: str, message: str) -> None:
         )
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass
+
+
+# ─── История диктовки ───────────────────────────────────────────
+def _history_timestamp() -> str:
+    return datetime.now().astimezone().isoformat(timespec="milliseconds")
+
+
+def _history_warning(message: str) -> None:
+    print(f"⚠ {message}")
+    _notify("🎙 Диктовка", message)
+
+
+class DictationHistory:
+    """Хранить исходные и итоговые финалы в JSONL-файле сессии."""
+
+    def __init__(self, directory: str, enabled: bool = True, on_warning=None):
+        self.directory = directory
+        self.enabled = enabled
+        self.path = None
+        self._file = None
+        self._warned = False
+        self._on_warning = on_warning or _history_warning
+        if not enabled:
+            return
+
+        try:
+            os.makedirs(directory, exist_ok=True)
+            now = datetime.now().astimezone()
+            self._file = tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=directory,
+                prefix=now.strftime("session-%Y%m%d-%H%M%S-"),
+                suffix=".jsonl",
+                delete=False,
+            )
+            self.path = self._file.name
+        except OSError as error:
+            self._fail(error)
+            return
+
+        self._write({
+            "type": "session_start",
+            "timestamp": _history_timestamp(),
+            "pid": os.getpid(),
+        })
+
+    def _write(self, data: dict) -> None:
+        if not self.enabled or self._file is None:
+            return
+        try:
+            self._file.write(json.dumps(data, ensure_ascii=False) + "\n")
+            self._file.flush()
+        except OSError as error:
+            self._fail(error)
+
+    def _fail(self, error: OSError) -> None:
+        self.enabled = False
+        file = self._file
+        self._file = None
+        if file is not None:
+            try:
+                file.close()
+            except OSError:
+                pass
+        if not self._warned:
+            self._warned = True
+            self._on_warning(
+                f"Не удалось записать историю в {self.directory}: {error}. "
+                "Запись истории отключена до перезапуска."
+            )
+
+    def record(self, soda_text: str, final_text: str) -> None:
+        """Записать пару «исходный финал SODA → вставленный текст»."""
+        self._write({
+            "type": "segment",
+            "timestamp": _history_timestamp(),
+            "soda": soda_text,
+            "final": final_text,
+        })
+
+    def close(self) -> None:
+        """Закрыть файл истории; повторный вызов безопасен."""
+        self.enabled = False
+        file = self._file
+        self._file = None
+        if file is None:
+            return
+        try:
+            file.close()
+        except OSError as error:
+            self._fail(error)
+
+
+_history: DictationHistory | None = None
 
 
 def _default_source_is_bluetooth() -> bool:
@@ -253,7 +352,7 @@ _children: list[subprocess.Popen] = []
 
 
 def _cleanup():
-    """Завершить дочерние процессы, убрать PID-файл."""
+    """Завершить дочерние процессы, убрать PID-файл и закрыть историю."""
     for p in _children:
         try:
             p.terminate()
@@ -280,6 +379,8 @@ def _cleanup():
                 os.remove(PID_FILE)
     except FileNotFoundError:
         pass
+    if _history is not None:
+        _history.close()
 
 
 atexit.register(_cleanup)
@@ -359,7 +460,20 @@ def _watch_stderr(gasr, restart_event, state):
 
 
 # ─── Основной цикл ──────────────────────────────────────────────
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Офлайн-диктовка через Google SODA")
+    parser.add_argument(
+        "--no-history",
+        action="store_true",
+        help="не записывать историю сессии в history/",
+    )
+    return parser.parse_args()
+
+
 def main():
+    global _history
+    args = _parse_args()
+
     # Лог писать построчно: stdout уходит в файл, и без этого сообщения
     # видны только при завершении процесса — отладка вслепую.
     sys.stdout.reconfigure(line_buffering=True)
@@ -387,6 +501,12 @@ def main():
         print("  Установите: sudo pacman -S python-protobuf")
         print("  (через pip ставить нельзя — теряется при обновлении Python)")
         sys.exit(1)
+
+    _history = DictationHistory(HISTORY_DIR, enabled=not args.no_history)
+    if _history.enabled:
+        print(f"📝 История: {_history.path}")
+    else:
+        print("📝 История диктовки отключена")
 
     print("🎙 Запуск SODA...")
 
@@ -426,10 +546,14 @@ def main():
                 if not text:
                     continue
 
+                soda_text = text
                 text = process_text(text)
                 text = fix_text(text)
                 if text:
-                    paste_text(text + " ")
+                    inserted_text = text + " "
+                    paste_text(inserted_text)
+                    if _history is not None:
+                        _history.record(soda_text, inserted_text)
                     state["finals"] += 1
                     print(f"  → {text}")
 

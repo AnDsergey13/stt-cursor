@@ -28,7 +28,7 @@ stop_dictation() {
 
 start_dictation() {
     cd "$PROJECT"
-    python3 "$PROJECT/main.py" >> "$LOG" 2>&1 &
+    python3 "$PROJECT/main.py" "$@" >> "$LOG" 2>&1 &
     echo $! > "$PID_FILE"
     disown
     echo "Started PID: $!" >> "$LOG"
@@ -41,5 +41,5 @@ if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
 else
     echo "ACTION: start" >> "$LOG"
     rm -f "$PID_FILE"
-    start_dictation
+    start_dictation "$@"
 fi
